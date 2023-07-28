@@ -1,8 +1,12 @@
+#!/usr/bin/env python
 import numpy as np
-import colorsys
-import json
+import rospy
+from std_msgs.msg import String
+import sys
+import os
+sys_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(sys_path)
 from pycrazyswarm import *
-import yaml
 
 # Environment constants
 Z = 1.0
@@ -10,87 +14,51 @@ TAKEOFF_DURATION = 2.5
 TARGET_HEIGHT = 0.02
 GOTO_DURATION = 3.0
 LAND_DURATION = 3.0
+planned_path_data = ""
 
-# Read the JSON file
-with open('../data/utra_sim.json') as json_file:
-    data = json.load(json_file)
-
-num_timesteps = len(data['movements'])
-print(num_timesteps)
-num_robots = len(data['movements']['0'])  # Assuming all timesteps have the same number of robots
-print(num_robots)
-
-time_info = np.zeros(num_timesteps)  # holds time values
-robot_position_info = np.zeros((num_timesteps, num_robots, 3))  # holds robot position values
-
-for timestep_index, timestep in data['movements'].items():
-    timestep_index = int(timestep_index)
-    time_info[timestep_index] = float(timestep_index)
-    for robot_index, robot in enumerate(timestep):
-        robot_id = robot['robot']
-        position = robot['position']
-        robot_position_info[timestep_index, robot_index, :] = position['x'], position['y'], position['z']
-
-# Synchronizes yaml file with crazyflies in simulation
-with open('../launch/allCrazyflies_demo.yaml', 'r') as f:
-    allcfs = yaml.load(f)
-    my_cfs = allcfs['crazyflies']
-    indices_dict = {cf['id']: i for i, cf in enumerate(my_cfs)}
-
-# Reads in crazyflies yaml such that the indices of simulation setup match with crazyflie ids
-with open('../launch/crazyflies.yaml') as f:
-    mycfs = yaml.load(f)
-    robot_ids = [cf['id'] for cf in mycfs['crazyflies']]
-
-robot_indices = [int(indices_dict[r]) for r in robot_ids]
-robot_position_info = np.array(robot_position_info)
-num_robots = min(len(robot_indices), robot_position_info.shape[1])
-print(robot_position_info)
-ALL_WAYPOINTS = robot_position_info[:, robot_indices[:num_robots], :]
-
-def generateRGBColors(num_colors):
-    output = []
-    num_colors += 1  # to avoid the first color
-    for index in range(1, num_colors):
-        incremented_value = 1.0 * index / num_colors
-        output.append(colorsys.hsv_to_rgb(incremented_value, 0.75, 0.75))
-    return np.asarray(output)
-
-def main():
+def planned_path_callback(msg):
+   
+    global planned_path_data
+    planned_path_data = []
+    
     swarm = Crazyswarm()
     timeHelper = swarm.timeHelper
     allcfs = swarm.allcfs
 
-    """ COLORS """
-    for cf in allcfs.crazyflies:
-        cf.setParam("ring/effect", 7)
-    rgb_bits = generateRGBColors(len(robot_indices))
-
-    for cf, rgb in zip(allcfs.crazyflies, rgb_bits):
-        cf.setLEDColor(*rgb)
-
     """ MISSION """
     allcfs.takeoff(Z, TAKEOFF_DURATION)
     timeHelper.sleep(TAKEOFF_DURATION + 1)
+    
+    # Extract coordinates from the received message
+    points = msg.data.strip().split(';')
+    for point in points:
+        if not point:
+            continue
+        x, y, z = point.split(',')
+        x, y, z = float(x), float(y), float(z)
+        planned_path_data.append((x, y, z))
 
-    # Get the number of timesteps
-    num_timesteps = len(time_info)
-    num_drones = np.minimum(len(allcfs.crazyflies), ALL_WAYPOINTS.shape[1])
-    print(ALL_WAYPOINTS)
-    # Assign positions to each drone at each timestep
-    for t in range(1, num_timesteps):
-        for i in range(num_drones):
-            # Gets the correct crazyflie
-            WAYPOINTS = ALL_WAYPOINTS[:, i, :]
-            # Get the positions for the current timestep
-            positions = WAYPOINTS[t, :]  # Gets a vector of all the row values in a specific column t
-            cf = allcfs.crazyflies[i]
-            cf.goTo(positions, 0.0, (time_info[t] - time_info[t-1]))
-        timeHelper.sleep((time_info[t] - time_info[t-1]) - 0.4)
+    rospy.loginfo("Received planned_path: %s", planned_path_data)
+    
+    for wp in planned_path_data: 
+        cf = allcfs.crazyflies[0]
+        cf.goTo(wp, 0.0, GOTO_DURATION)
+    timeHelper.sleep(GOTO_DURATION + 0.05)
 
     # Land the drones
     allcfs.land(TARGET_HEIGHT, LAND_DURATION)
     timeHelper.sleep(LAND_DURATION + 1)
+
+
+def main():
+    # ROS node initialization
+    rospy.init_node('subscriber', anonymous=True)
+
+    # Subscriber for the "planned_path" topic
+    rospy.Subscriber("planned_path", String, planned_path_callback)
+
+    # Keep the node running until it's shut down
+    rospy.sleep(60)
 
 if __name__ == "__main__":
     main()
