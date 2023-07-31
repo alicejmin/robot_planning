@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rospy
 from std_msgs.msg import String
+from geometry_msgs.msg import Point
 import sys
 import os
 sys_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -138,6 +139,23 @@ def reconstruct_path(node, parent_nodes, graph):
 
 """ RUNNING """
 
+# Define the start and goal nodes
+swarm = Crazyswarm()
+allcfs = swarm.allcfs
+cf = allcfs.crazyflies[0]
+start = cf.position()
+goal = (3,2.3, 1.5)
+
+def rob_pos_callback(msg):
+    
+    start = (msg.x, msg.y, msg.z)
+    print(start)
+    global goal
+    goal = (3,2.3, 1.5)
+
+# def goal_pos_callback(msg):
+
+
 def main():
     # Example usage
     length = 12
@@ -145,41 +163,40 @@ def main():
     height = 2
     cell_size = 0.5
 
-    # Define the start and goal nodes
-    swarm = Crazyswarm()
-    allcfs = swarm.allcfs
-    cf = allcfs.crazyflies[0]
+    
 
     rospy.init_node('path_planner')
     path_pub = rospy.Publisher('planned_path', String, queue_size=10)
-    loop_hz = 60
+    rospy.Subscriber('robot_pos', Point, rob_pos_callback)
+    #rospy.Subscriber('mocap_helper', Point, goal_pos_callback)
+    loop_hz = 1
     rate = rospy.Rate(loop_hz)
     
     while not rospy.is_shutdown():
         # Create the three-dimensional graph
         graph = create_graph(length, width, height, cell_size)
-        #print(tuple(cf.position()))
-        start = tuple(cf.position()) #TODO: change to be cf.position()
-        goal = (3, 2.3, 1.5) #TODO: change to be mocap rigid positions 
-        # Subscriber for the "mocap_helper" topic
-        # rospy.Subscriber("mocap_helper", MocapHelperMsg, mocap_helper_callback)
+        
+        if start is not None and goal is not None:
 
-        # Find the path using space-time A*
-        path = a_star(graph, start, goal, cell_size)
-        #print(path)
-        # Convert the path to a string representation
-        path_str = ""
-        for point in path:
-            path_str += f"{point[0]}, {point[1]}, {point[2]};"
-        rospy.loginfo(path_str)
-        path_pub.publish(path_str)
+            # Find the path using space-time A*
+            path = a_star(graph, start, goal, cell_size)
+            #print(path)
+            # Convert the path to a string representation
+            path_str = ""
+            for point in path:
+                path_str += f"{point[0]}, {point[1]}, {point[2]};"
+            rospy.loginfo(path_str)
+            path_pub.publish(path_str)
 
         # Keep the node running until it's shut down
         rate.sleep()
 
 if __name__ == '__main__':
     try:
+        start = (0,0,0)
+        goal = (3,2.3, 1.5)
         main()
+        
     except rospy.ROSInterruptException:
         pass
 
