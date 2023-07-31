@@ -10,6 +10,8 @@ sys.path.append(sys_path)
 from pycrazyswarm import *
 import matplotlib
 matplotlib.use('Agg')
+import threading
+from threading import Thread
 
 # Environment constants
 Z = 1.0
@@ -17,7 +19,9 @@ TAKEOFF_DURATION = 2.5
 TARGET_HEIGHT = 0.02
 GOTO_DURATION = 3.0
 LAND_DURATION = 3.0
-planned_path_data = ""
+
+#Initialize a lock for synchronized access to planned_path_data
+planned_path_data_lock = threading.Lock()
 planned_path_data = []
 
 
@@ -26,8 +30,6 @@ timeHelper = swarm.timeHelper
 allcfs = swarm.allcfs
 
 def planned_path_callback(msg):
-    
-    
     """ MISSION """
     allcfs.takeoff(0.02, TAKEOFF_DURATION)
     timeHelper.sleep(TAKEOFF_DURATION + 1)  
@@ -39,7 +41,10 @@ def planned_path_callback(msg):
             continue
         x, y, z = point.split(',')
         x, y, z = float(x), float(y), float(z)
+        # Acquire the lock before updating planned_path_data
+        planned_path_data_lock.acquire()
         planned_path_data.append((x, y, z))
+        planned_path_data_lock.release()
 
     rospy.loginfo("Received planned_path: %s", planned_path_data)
     
@@ -54,15 +59,23 @@ def planned_path_callback(msg):
     timeHelper.sleep(LAND_DURATION + 1)
 
 def broadcast_pos(rate, cf):
-    # rospy.init_node('robot_position')
     #Publish the current position at the specified rate 
     rate = rospy.Rate(rate)
     pub = rospy.Publisher('robot_pos', Point, queue_size=10)
     while not rospy.is_shutdown():
         pos = Point()
         pos.x, pos.y, pos.z = cf.position()
+        # Acquire the lock before accessing planned_path_data
+        planned_path_data_lock.acquire()
+        path_data_copy = planned_path_data[:]  # Make a copy to avoid interference while iterating
+        planned_path_data_lock.release()
+
         pub.publish(pos)
         print(pos)
+
+        # Print planned_path_data (avoid modifying it while printing)
+        print("planned_path_data:", path_data_copy)
+
         rate.sleep()
 
 def main():
@@ -70,7 +83,6 @@ def main():
     rospy.init_node('subscriber', anonymous=True)
 
     # Send out robot locations
-    from threading import Thread
     Thread(target=broadcast_pos, kwargs={"rate": 1, "cf": allcfs.crazyflies[0]}).start()
 
     # Subscriber for the "planned_path" topic
