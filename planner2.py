@@ -9,6 +9,8 @@ import os
 sys_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(sys_path)
 from pycrazyswarm import *
+import threading
+from threading import Thread
 
 
 def create_graph(length, width, height, cell_size):
@@ -143,60 +145,69 @@ def reconstruct_path(node, parent_nodes, graph):
 swarm = Crazyswarm()
 allcfs = swarm.allcfs
 cf = allcfs.crazyflies[0]
-start = cf.position()
-goal = (3,2.3, 1.5)
+goal = (3, 2.3, 1.5)
 
 def rob_pos_callback(msg):
-    
+    global start, goal
+     # Acquire the lock before updating the start position
+    position_lock.acquire()
     start = (msg.x, msg.y, msg.z)
     print(start)
-    global goal
-    goal = (3,2.3, 1.5)
+    position_lock.release()
 
 # def goal_pos_callback(msg):
+    # goal = (msg.x, msg.y, msg.z)
+
+# Initialize a lock for synchronized access to start and goal positions
+position_lock = threading.Lock()
 
 
-def main():
-    # Example usage
+def planner(rate):
+    # Publish the planned path at the specified rate
+    rate = rospy.Rate(rate)
+    path_pub = rospy.Publisher('planned_path', String, queue_size=10)
+
+    # Create the three-dimensional graph
     length = 12
     width = 6
     height = 2
     cell_size = 0.5
+    graph = create_graph(length, width, height, cell_size)
 
-    
-
-    rospy.init_node('path_planner')
-    path_pub = rospy.Publisher('planned_path', String, queue_size=10)
-    rospy.Subscriber('robot_pos', Point, rob_pos_callback)
-    #rospy.Subscriber('mocap_helper', Point, goal_pos_callback)
-    loop_hz = 1
-    rate = rospy.Rate(loop_hz)
-    
     while not rospy.is_shutdown():
-        # Create the three-dimensional graph
-        graph = create_graph(length, width, height, cell_size)
-        
+        # Acquire the lock before accessing start and goal positions
+        position_lock.acquire()
         if start is not None and goal is not None:
-
             # Find the path using space-time A*
             path = a_star(graph, start, goal, cell_size)
-            #print(path)
             # Convert the path to a string representation
             path_str = ""
             for point in path:
                 path_str += f"{point[0]}, {point[1]}, {point[2]};"
             rospy.loginfo(path_str)
             path_pub.publish(path_str)
+        position_lock.release()
 
-        # Keep the node running until it's shut down
         rate.sleep()
+
+def main():
+    # ROS node initialization
+    rospy.init_node('subscriber', anonymous=True)
+
+    # Start the planner thread
+    Thread(target=planner, kwargs={"rate": 1}).start()
+
+    # Subscriber for the "robot_pos" topic
+    rospy.Subscriber('robot_pos', Point, rob_pos_callback)
+
+    # Keep the node running until it's shut down
+    rospy.spin()
 
 if __name__ == '__main__':
     try:
         start = (0,0,0)
         goal = (3,2.3, 1.5)
         main()
-        
     except rospy.ROSInterruptException:
         pass
 
