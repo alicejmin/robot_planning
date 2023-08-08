@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/alice/crazyswarm/ros_ws/src/crazyswarm/scripts/utra/mocap/build/devel/setup.sh

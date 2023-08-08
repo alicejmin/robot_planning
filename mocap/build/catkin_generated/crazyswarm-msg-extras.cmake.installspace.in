@@ -1,0 +1,2 @@
+set(crazyswarm_MESSAGE_FILES "msg/LogBlock.msg;msg/GenericLogData.msg;msg/FullState.msg;msg/VelocityWorld.msg;msg/TrajectoryPolynomialPiece.msg;msg/Hover.msg;msg/Position.msg")
+set(crazyswarm_SERVICE_FILES "")
